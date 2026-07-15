@@ -1,6 +1,6 @@
 # Secure Local MCP Server
 
-[![CI: Passing](https://github.com/mindx/secure-local-mcp/actions/workflows/python-app.yml/badge.svg)](https://github.com/mindx/secure-local-mcp/actions)
+[![CI: Passing](https://github.com/oke123321/secure-local-mcp/actions/workflows/python-app.yml/badge.svg)](https://github.com/oke123321/secure-local-mcp/actions)
 
 > **3-Day Fresher Engineering Automation Challenge**  
 > Một hệ thống AI Agent hoàn toàn offline, bảo mật, và tối ưu hóa hiệu năng, xây dựng trên nền tảng Model Context Protocol (MCP).

@@ -125,11 +125,12 @@ class TestDirectoryTraversalSecurity:
     @pytest.mark.parametrize("malicious_path", [
         "../../etc/passwd",
         "../../../Windows/System32/config/SAM",
-        "..\\..\\..\\Windows\\win.ini",
         "/etc/shadow",
-        "C:\\Windows\\System32\\cmd.exe",
         "..//..//..//etc/passwd",
-    ])
+    ] + ([
+        "..\\..\\..\\Windows\\win.ini",
+        "C:\\Windows\\System32\\cmd.exe",
+    ] if sys.platform == "win32" else []))
     def test_blocks_directory_traversal(self, notes_dir: Path, malicious_path: str):
         """
         ✅ Server PHẢI chặn đứng mọi đường dẫn nguy hiểm.
