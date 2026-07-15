@@ -2,5 +2,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 server.log
-my_notes/.mcp_index.db
+data/
 .env

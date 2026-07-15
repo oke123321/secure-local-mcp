@@ -33,8 +33,11 @@ BASE_DIR = Path(__file__).parent.parent.resolve()
 NOTES_DIR = BASE_DIR / "my_notes"
 NOTES_DIR.mkdir(exist_ok=True)
 
+DATA_DIR = BASE_DIR / "data"
+DATA_DIR.mkdir(exist_ok=True)
+
 # ─── Khởi tạo FTS5 Indexer (chạy một lần khi server boot) ───────────────────
-DB_PATH = NOTES_DIR / ".mcp_index.db"
+DB_PATH = DATA_DIR / ".mcp_index.db"
 indexer = NoteIndexer(notes_dir=NOTES_DIR, db_path=str(DB_PATH))
 
 # ─── Khởi tạo FastMCP Server ─────────────────────────────────────────────────
