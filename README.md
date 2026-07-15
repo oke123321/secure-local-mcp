@@ -9,7 +9,7 @@
 
 ## 🎯 Vấn đề đã giải quyết
 
-Các kỹ sư phần mềm mất trung bình **15-20 phút/ngày** chỉ để tìm kiếm thông tin trong hàng chục file ghi chú rải rác. Paste dữ liệu nội bộ lên ChatGPT/Claude Web là **rủi ro bảo mật nghiêm trọng (Data Leak)**.
+Các kỹ sư phần mềm mất trung bình **15-20 phút/ngày** chỉ để tìm kiếm thông tin trong hàng chục file ghi chú rải rác. Paste dữ liệu nội bộ lên các Cloud AI là **rủi ro bảo mật nghiêm trọng (Data Leak)**.
 
 Dự án này xây dựng một AI cá nhân chạy **100% offline**, giao tiếp trực tiếp với kho ghi chú nội bộ thông qua giao thức **MCP (Model Context Protocol)**.
 
@@ -27,7 +27,7 @@ src/indexer.py ──── SQLite FTS5 ──── O(log N) search
 src/server.py ───── FastMCP ──────── 4 Tools: list/read/search/write
      │
      ▼ (stdio / JSON-RPC)
-Claude Desktop / Any MCP Client
+Ollama (Gemma4) / Any Local MCP Client
 ```
 
 ---
@@ -64,11 +64,10 @@ make run
 ```
 *Server sẽ tự động nạp Database và chạy Hot-Reload (Watchdog) giám sát thư mục.*
 
-### 3. Tích hợp vào Claude Desktop
+### 3. Tích hợp với Ollama Local
 
-Mở file cấu hình Claude Desktop và thêm nội dung từ `claude_config.json`:
-- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-- **macOS/Linux:** `~/.config/claude/claude_desktop_config.json`
+Sử dụng thư viện `ollama` và `mcp` SDK trong Python để tạo ra Agent AI chạy bằng Gemma4.
+Xem file `src/demo_agent.py` để biết cách Agent sử dụng Tools.
 
 ### 4. Chạy trong Docker
 
@@ -100,7 +99,6 @@ secure-local-mcp/
 │   └── test_server.py      # Unit Tests (pytest)
 ├── Dockerfile
 ├── requirements.txt
-├── claude_config.json
 └── README.md
 ```
 
