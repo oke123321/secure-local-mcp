@@ -2,30 +2,32 @@
 
 [![CI](https://github.com/oke123321/secure-local-mcp/actions/workflows/python-app.yml/badge.svg)](https://github.com/oke123321/secure-local-mcp/actions/workflows/python-app.yml)
 
-> Một hệ thống AI Agent Kỹ sư Phần mềm hoàn toàn offline, bảo mật, và tương tác trực tiếp với máy tính cá nhân qua giao thức MCP (Model Context Protocol).
+*[Đọc bản tiếng Việt](README.vi.md)*
+
+> A Software Engineer AI Agent system that is 100% offline, secure, and directly interacts with your personal computer via the MCP (Model Context Protocol).
 
 ---
 
-## 🎯 Vấn đề đã giải quyết
+## 🎯 The Problem Solved
 
-Các Cloud AI hiện tại có nguy cơ lộ lọt dữ liệu mã nguồn (Data Leak) và không thể tương tác trực tiếp với hệ điều hành máy tính của bạn.
-Dự án này xây dựng một AI cá nhân chạy **100% offline (Native)** trên Windows, vừa có khả năng đọc/phân tích mã nguồn dự án, vừa có quyền thực thi các lệnh hệ thống thực tế (như \ping\, \ipconfig\, \dir\) mà không bị kìm hãm bởi các lớp áo ảo hóa (Docker).
+Current Cloud AIs pose a risk of source code data leaks and cannot directly interact with your local operating system.
+This project builds a personal AI running **100% offline (Native)** on Windows, capable of reading/analyzing your project's source code, as well as executing real system commands (like `ping`, `ipconfig`, `dir`) without being restricted by virtualization layers (Docker).
 
 ---
 
-## 🏗️ Kiến trúc hệ thống (Native Mode)
+## 🏗️ System Architecture (Native Mode)
 
 ```text
-my_notes/ (Ghi chú) & project_context/ (Mã nguồn)
+my_notes/ (Notes) & project_context/ (Source Code)
                         │
                         ▼
-src/indexer.py ──── SQLite FTS5 ──── Quét & Lập chỉ mục Code/Text
+src/indexer.py ──── SQLite FTS5 ──── Scan & Index Code/Text
                         │
                         ▼
 src/server.py ───── FastMCP ──────── 5 Tools (list, read, search, write, execute_command)
                         │
                         ▼ (stdio / JSON-RPC)
-src/ui.py ───────── Streamlit ────── Giao diện Web trực quan (Hiển thị luồng gọi Tool minh bạch)
+src/ui.py ───────── Streamlit ────── Visual Web Interface (Transparent Tool execution flow)
                         │
                         ▼
 Ollama (Gemma4/Qwen) / Any Local LLM
@@ -33,53 +35,53 @@ Ollama (Gemma4/Qwen) / Any Local LLM
 
 ---
 
-## ✨ Tính năng nổi bật
+## ✨ Highlight Features
 
-| Tính năng | Chi tiết |
+| Feature | Details |
 |-----------|---------|
-| **Codebase Indexing** | SQLite FTS5 đọc và lập chỉ mục hàng loạt ngôn ngữ lập trình (`.py`, `.js`, `.json`, `.cpp`, `.go`...) bỏ qua file nhị phân. Tốc độ **O(log N)**. |
-| **Native OS Commands** | Cho phép AI thực thi các lệnh Terminal (Powershell/CMD) trên máy Windows thực tế để tra cứu mạng hoặc hệ thống. |
-| **Giao diện Web Minh bạch** | Mọi hành động gọi tool (đọc file, chạy lệnh mạng) đều được hiển thị chi tiết dưới dạng khối Expanders, không giấu giếm. |
-| **100% Offline & Un-sandboxed** | Không dùng Docker để tránh bị cô lập hệ thống mạng. Dữ liệu không bao giờ rời máy tính. |
-| **Directory Traversal Protection** | Chặn đứng payload `../../etc/passwd`. AI chỉ được phép thao tác trong vùng `my_notes` và `project_context`. |
+| **Codebase Indexing** | SQLite FTS5 reads and indexes a variety of programming languages (`.py`, `.js`, `.json`, `.cpp`, `.go`...) while skipping binary files. Blazing fast **O(log N)** speed. |
+| **Native OS Commands** | Allows the AI to execute Terminal (Powershell/CMD) commands on the actual Windows machine to query the network or system. |
+| **Transparent Web UI** | Every tool execution (reading files, running network commands) is displayed in detail as an Expander block, hiding nothing. |
+| **100% Offline & Un-sandboxed** | No Docker is used to avoid network isolation. Data never leaves your machine. |
+| **Directory Traversal Protection** | Blocks payloads like `../../etc/passwd`. The AI is strictly restricted to operations within the `my_notes` and `project_context` directories. |
 
 ---
 
-## 🚀 Cài đặt và chạy (Chỉ 1 Click)
+## 🚀 Installation & Usage (1-Click)
 
-Hệ thống được thiết kế để chạy trực tiếp trên Windows (Native) nhằm tận dụng tối đa quyền hạn của hệ điều hành. 
+The system is designed to run directly on Windows (Native) to fully utilize the operating system's capabilities and permissions.
 
-**Yêu cầu:**
-- Đã cài đặt **Python 3.10+** (đã cấu hình PATH).
-- Đã cài đặt và chạy **Ollama** ở cổng mặc định (`http://localhost:11434`).
+**Requirements:**
+- **Python 3.10+** installed (with PATH configured).
+- **Ollama** installed and running on the default port (`http://localhost:11434`).
 
-**Cách khởi chạy:**
-Chỉ cần nhấp đúp chuột vào file **`start.bat`**. 
-Script sẽ tự động:
-1. Tạo môi trường ảo (venv).
-2. Cài đặt các thư viện cần thiết (`pip install`).
-3. Mở ứng dụng Web UI (Streamlit) trên trình duyệt tại `http://localhost:8501`.
-
----
-
-## 🛡️ Cơ chế Bảo mật
-
-Hệ thống áp dụng lớp bảo vệ chống **Directory Traversal Attack (CWE-22)**:
-Dùng hàm `resolve()` và `is_relative_to()` để đảm bảo đường dẫn đọc/ghi tuyệt đối không thoát ra khỏi 2 thư mục gốc được cho phép (`my_notes` và `project_context`).
+**How to run:**
+Simply double-click the **`start.bat`** file. 
+The script will automatically:
+1. Create a virtual environment (venv).
+2. Install the necessary dependencies (`pip install`).
+3. Open the Web UI app (Streamlit) in your browser at `http://localhost:8501`.
 
 ---
 
-## 📁 Cấu trúc dự án
+## 🛡️ Security Mechanisms
+
+The system applies a robust protection layer against **Directory Traversal Attacks (CWE-22)**:
+It utilizes `resolve()` and `is_relative_to()` to ensure that the read/write paths absolutely cannot escape the 2 permitted root directories (`my_notes` and `project_context`).
+
+---
+
+## 📁 Project Structure
 
 ```text
 secure-local-mcp/
-├── my_notes/               # Kho ghi chú cá nhân (.md, .txt)
-├── project_context/        # Mã nguồn dự án để AI phân tích (.py, .js, .json,...)
+├── my_notes/               # Personal notes repo (.md, .txt)
+├── project_context/        # Project source code for AI analysis (.py, .js, .json,...)
 ├── src/
-│   ├── server.py           # FastMCP Server (Khai báo Tools)
-│   ├── indexer.py          # SQLite FTS5 Indexing Engine (Xử lý cả Text & Code)
-│   └── ui.py               # Giao diện Streamlit Web Chat
-├── start.bat               # Script khởi động tự động trên Windows (Native)
+│   ├── server.py           # FastMCP Server (Tool declarations)
+│   ├── indexer.py          # SQLite FTS5 Indexing Engine (Handles Text & Code)
+│   └── ui.py               # Streamlit Web Chat Interface
+├── start.bat               # Windows (Native) automated startup script
 ├── requirements.txt
 └── README.md
 ```
