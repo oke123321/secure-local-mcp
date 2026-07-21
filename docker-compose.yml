@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: always
+
+  init-model:
+    image: curlimages/curl:latest
+    depends_on:
+      - ollama
+    command: >
+      sh -c "
+        echo 'Đang chờ Ollama khởi động...';
+        sleep 5;
+        echo 'Đang tải model dommage/gemma4-e4b-qat:latest (có thể mất vài phút)...';
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"dommage/gemma4-e4b-qat:latest\"}';
+        echo 'Hoàn tất tải model!';
+      "
+
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./my_notes:/app/my_notes
+      - ./project_context:/app/project_context
+    depends_on:
+      - ollama
+      - init-model
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    restart: always
+
+volumes:
+  ollama_data:

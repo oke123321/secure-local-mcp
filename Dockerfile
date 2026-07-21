@@ -1,9 +1,7 @@
-"""
-Phase 3: Dockerfile
-====================
-Đóng gói MCP Server thành container độc lập.
-Base image python:3.11-slim để tối ưu kích thước (~150MB).
-"""
+# Phase 3: Dockerfile
+# ====================
+# Đóng gói MCP Server thành container độc lập.
+# Base image python:3.11-slim để tối ưu kích thước (~150MB).
 FROM python:3.11-slim
 
 # Metadata
@@ -15,6 +13,7 @@ WORKDIR /app
 
 # Bước 1: Cài dependencies trước (tận dụng Docker layer cache)
 COPY requirements.txt .
+RUN apt-get update && apt-get install -y iputils-ping net-tools dnsutils && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Bước 2: Copy toàn bộ source code
@@ -29,5 +28,5 @@ ENV NOTES_DIR=/app/my_notes
 # Volume để mount thư mục ghi chú từ host
 VOLUME ["/app/my_notes"]
 
-# MCP Server chạy qua stdio, không mở port TCP
-CMD ["python", "src/server.py"]
+# Streamlit Server chạy ở port 8501, giao tiếp ngầm với server.py
+CMD ["streamlit", "run", "src/ui.py", "--server.address=0.0.0.0"]

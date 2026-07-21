@@ -8,6 +8,8 @@ import os
 import sys
 import logging
 import threading
+import subprocess
+import re
 from pathlib import Path
 from fastmcp import FastMCP
 from watchdog.observers import Observer
@@ -26,53 +28,59 @@ logger = logging.getLogger("SecureMCP")
 
 # Import indexer từ cùng thư mục
 sys.path.insert(0, str(Path(__file__).parent))
-from indexer import NoteIndexer
+from indexer import NoteIndexer, SUPPORTED_EXTS
 
 # ─── Cấu hình đường dẫn ───────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent.parent.resolve()
 NOTES_DIR = BASE_DIR / "my_notes"
 NOTES_DIR.mkdir(exist_ok=True)
 
+PROJECT_DIR = BASE_DIR / "project_context"
+PROJECT_DIR.mkdir(exist_ok=True)
+
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 # ─── Khởi tạo FTS5 Indexer (chạy một lần khi server boot) ───────────────────
 DB_PATH = DATA_DIR / ".mcp_index.db"
-indexer = NoteIndexer(notes_dir=NOTES_DIR, db_path=str(DB_PATH))
+indexer = NoteIndexer(base_dir=BASE_DIR, scan_dirs=[NOTES_DIR, PROJECT_DIR], db_path=str(DB_PATH))
 
 # ─── Khởi tạo FastMCP Server ─────────────────────────────────────────────────
 mcp = FastMCP(
     name="secure-local-mcp",
     instructions=(
-        "Bạn là trợ lý AI tích hợp với hệ thống ghi chú cá nhân. "
-        "Sử dụng các tools để tìm kiếm, đọc và ghi chú nội bộ. "
-        "Không được truy cập bất kỳ file nào ngoài thư mục my_notes."
+        "Bạn là một trợ lý kỹ sư phần mềm offline. "
+        "Hãy sử dụng các công cụ để đọc, tìm kiếm tài liệu và mã nguồn trong dự án, hoặc tạo ghi chú. "
+        "Thư mục làm việc gồm my_notes (ghi chú) và project_context (mã nguồn). "
+        "Luôn truyền filepath có chứa tên thư mục (ví dụ: my_notes/todo.md hay project_context/main.py). "
+        "Bạn có quyền thực thi lệnh quản trị hệ thống bằng execute_command (đã được giới hạn whitelist)."
     ),
 )
 
 # ─── Watchdog: File System Event Handler ──────────────────────────────────────
 class NotesEventHandler(FileSystemEventHandler):
     def on_created(self, event):
-        if not event.is_directory and event.src_path.endswith(".md"):
-            logger.info(f"Phát hiện file mới: {event.src_path}. Đang reindex...")
+        if not event.is_directory and Path(event.src_path).suffix.lower() in SUPPORTED_EXTS:
+            logger.info(f"New file detected: {event.src_path}. Reindexing...")
             indexer.upsert_file(event.src_path)
 
     def on_modified(self, event):
-        if not event.is_directory and event.src_path.endswith(".md"):
-            logger.info(f"Phát hiện file thay đổi: {event.src_path}. Đang cập nhật index...")
+        if not event.is_directory and Path(event.src_path).suffix.lower() in SUPPORTED_EXTS:
+            logger.info(f"File modified: {event.src_path}. Updating index...")
             indexer.upsert_file(event.src_path)
 
     def on_deleted(self, event):
-        if not event.is_directory and event.src_path.endswith(".md"):
-            logger.info(f"Phát hiện file bị xóa: {event.src_path}. Đang xóa khỏi index...")
+        if not event.is_directory and Path(event.src_path).suffix.lower() in SUPPORTED_EXTS:
+            logger.info(f"File deleted: {event.src_path}. Removing from index...")
             indexer.remove_file(event.src_path)
 
 def start_watchdog():
     observer = Observer()
     observer.schedule(NotesEventHandler(), str(NOTES_DIR), recursive=True)
+    observer.schedule(NotesEventHandler(), str(PROJECT_DIR), recursive=True)
     observer.daemon = True
     observer.start()
-    logger.info(f"Watchdog đã khởi động, theo dõi thư mục: {NOTES_DIR}")
+    logger.info(f"Watchdog started, monitoring: {NOTES_DIR} and {PROJECT_DIR}")
 
 
 def _resolve_safe_path(filename: str) -> Path:
@@ -91,13 +99,13 @@ def _resolve_safe_path(filename: str) -> Path:
     Raises:
         PermissionError: Nếu phát hiện directory traversal attack.
     """
-    # Giữ nguyên cấu trúc thư mục con do LLM truyền vào (vd: project_A/todo.md)
+    # Giữ nguyên cấu trúc thư mục con do LLM truyền vào (vd: project_context/main.py)
     # Hàm resolve() sẽ trả về đường dẫn tuyệt đối
-    resolved = (NOTES_DIR / filename).resolve()
+    resolved = (BASE_DIR / filename).resolve()
 
-    # Kiểm tra kép: đường dẫn phải nằm hoàn toàn trong NOTES_DIR
+    # Kiểm tra kép: đường dẫn phải nằm hoàn toàn trong NOTES_DIR hoặc PROJECT_DIR
     # Chặn các payload như ../../etc/passwd
-    if not resolved.is_relative_to(NOTES_DIR.resolve()):
+    if not (resolved.is_relative_to(NOTES_DIR.resolve()) or resolved.is_relative_to(PROJECT_DIR.resolve())):
         raise PermissionError(
             f"🔒 SECURITY ALERT: Directory Traversal bị chặn! "
             f"Đường dẫn '{filename}' không hợp lệ."
@@ -110,10 +118,11 @@ def _resolve_safe_path(filename: str) -> Path:
 @mcp.tool()
 def list_notes() -> str:
     """
-    Liệt kê danh sách tất cả các file ghi chú hiện có.
+    List all indexed files (notes and project source code).
+    Use this to show the user what files are available.
 
     Returns:
-        Chuỗi liệt kê tên file, mỗi file một dòng.
+        A string listing all filenames, one per line.
     """
     files = indexer.list_files()
 
@@ -128,17 +137,14 @@ def list_notes() -> str:
 @mcp.tool()
 def read_note(filename: str) -> str:
     """
-    Đọc nội dung chi tiết của một file ghi chú cụ thể.
+    Read the full content of a specific file (note or source code).
+    Use this when the user asks to read, view, or explain the contents of a specific file.
 
     Args:
-        filename: Tên file cần đọc (ví dụ: project_notes.md).
+        filename: Path to the file including its directory prefix, e.g. "my_notes/todo.md" or "project_context/main.py".
 
     Returns:
-        Nội dung đầy đủ của file.
-
-    Raises:
-        PermissionError: Nếu phát hiện Directory Traversal.
-        FileNotFoundError: Nếu file không tồn tại.
+        Full content of the file.
     """
     file_path = _resolve_safe_path(filename)
 
@@ -153,16 +159,16 @@ def read_note(filename: str) -> str:
 @mcp.tool()
 def search_notes(query: str) -> str:
     """
-    Tìm kiếm từ khóa trong toàn bộ kho ghi chú.
-
-    Sử dụng SQLite FTS5 Inverted Index để tìm kiếm với tốc độ O(log N),
-    nhanh hơn hàng trăm lần so với đọc file tuần tự.
+    Search for keywords across all indexed files (notes AND project source code).
+    Use this when the user asks to find something in their notes or project, or asks questions like
+    "where is function X?", "which files mention Y?", "find me something about Z".
+    Uses SQLite FTS5 full-text search for O(log N) speed.
 
     Args:
-        query: Từ khóa hoặc cụm từ cần tìm.
+        query: The keyword or phrase to search for.
 
     Returns:
-        Danh sách kết quả kèm đoạn trích dẫn (snippet) chứa từ khóa.
+        A list of matching files with relevant text snippets.
     """
     if not query.strip():
         return "⚠️ Vui lòng nhập từ khóa cần tìm."
@@ -186,22 +192,21 @@ def search_notes(query: str) -> str:
 @mcp.tool()
 def write_note(filename: str, content: str) -> str:
     """
-    Tạo mới hoặc cập nhật một file ghi chú.
+    Create or update a file in the notes directory.
+    Use this when the user asks to save, write, create, or update a note or document.
 
     Args:
-        filename: Tên file cần tạo/cập nhật (ví dụ: meeting_notes.md).
-        content: Nội dung ghi chú theo định dạng Markdown.
+        filename: File path including directory prefix, e.g. "my_notes/meeting.md".
+            Supported formats: .md, .txt, .py, .js, .json, .yaml, .yml, .ini, .csv, .log
+        content: The content to write (Markdown or plain text).
 
     Returns:
-        Thông báo xác nhận thành công.
-
-    Raises:
-        PermissionError: Nếu phát hiện Directory Traversal.
-        ValueError: Nếu filename chứa ký tự không hợp lệ.
+        Success confirmation message.
     """
-    # Validate: chỉ cho phép file .md
-    if not filename.endswith(".md"):
-        raise ValueError(f"⚠️ Chỉ hỗ trợ file .md. Nhận được: '{filename}'")
+    # Validate: chỉ cho phép các định dạng được hỗ trợ
+    path_obj = Path(filename)
+    if path_obj.suffix.lower() not in SUPPORTED_EXTS:
+        raise ValueError(f"⚠️ Định dạng file không được hỗ trợ. Nhận được: '{filename}'")
 
     file_path = _resolve_safe_path(filename)
     
@@ -216,11 +221,96 @@ def write_note(filename: str, content: str) -> str:
     return f"✅ Đã lưu ghi chú thành công: '{filename}' ({len(content)} ký tự)"
 
 
+# ─── Security Firewall cho System Commands ────────────────────────────────────
+SAFE_COMMANDS = ['ping', 'ipconfig', 'arp', 'nslookup', 'tracert', 'tasklist', 'systeminfo', 'hostname', 'whoami', 'getmac', 'netstat', 'nbtstat', 'pathping', 'curl']
+DANGEROUS_COMMANDS = ['netsh', 'route', 'net', 'wmic']
+FORBIDDEN_CHARS = ['&', '|', ';', '>', '<', '$', '`', '\n']
+
+def check_command_safety(command: str) -> tuple[bool, str]:
+    """Kiểm tra whitelist và command injection."""
+    if not command or not command.strip():
+        return False, "Lệnh trống."
+    
+    # Kiểm tra ký tự độc hại
+    for char in FORBIDDEN_CHARS:
+        if char in command:
+            return False, f"Lệnh chứa ký tự cấm: '{char}'. Khả năng Command Injection."
+            
+    parts = command.strip().split()
+    base_command = parts[0].lower()
+    
+    # Ở Windows, đôi khi base_command có đuôi .exe
+    if base_command.endswith('.exe'):
+        base_command = base_command[:-4]
+        
+    if base_command in SAFE_COMMANDS:
+        return True, "Safe"
+    elif base_command in DANGEROUS_COMMANDS:
+        return True, "Dangerous"
+    else:
+        return False, f"Lệnh '{base_command}' không nằm trong Whitelist."
+
+
+# ─── Tool 5: execute_command ──────────────────────────────────────────────────
+@mcp.tool()
+def execute_command(command: str) -> str:
+    """
+    Execute a SAFE system/network command and return its output.
+    
+    ALLOWED SAFE COMMANDS: ping, ipconfig, arp, nslookup, tracert, tasklist, systeminfo, hostname, whoami, getmac, netstat, nbtstat, pathping, curl
+    
+    If the user asks for dangerous commands (netsh, route, net, wmic), DO NOT use this tool.
+    Use execute_dangerous_command instead, after getting user permission.
+    """
+    is_valid, status = check_command_safety(command)
+    if not is_valid:
+        return f"🚫 SECURITY ALERT: Từ chối quyền - {status}"
+        
+    if status == "Dangerous":
+        return f"⚠️ CẢNH BÁO BẢO MẬT: '{command}' là lệnh nguy hiểm. BẠN PHẢI HỎI XIN PHÉP NGƯỜI DÙNG. Nếu người dùng ĐỒNG Ý, hãy dùng công cụ `execute_dangerous_command` để chạy."
+        
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        output = result.stdout if result.stdout else result.stderr
+        return f"✅ Lệnh chạy thành công:\n{output}"
+    except subprocess.TimeoutExpired:
+        return "❌ Lỗi: Lệnh bị timeout (vượt quá giới hạn 30 giây)."
+    except Exception as e:
+        return f"❌ Lỗi thực thi: {str(e)}"
+
+
+# ─── Tool 6: execute_dangerous_command ────────────────────────────────────────
+@mcp.tool()
+def execute_dangerous_command(command: str) -> str:
+    """
+    Execute a DANGEROUS system command (netsh, route, net, wmic).
+    
+    CRITICAL RULE: You MUST ask the user for explicit permission BEFORE calling this tool.
+    Explain what the command does and wait for their 'Yes' or 'Đồng ý'.
+    Only call this tool AFTER the user has approved.
+    """
+    is_valid, status = check_command_safety(command)
+    if not is_valid:
+        return f"🚫 SECURITY ALERT: Từ chối quyền - {status}"
+        
+    if status != "Dangerous":
+        return "Lệnh này an toàn, hãy dùng execute_command thay thế."
+        
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+        output = result.stdout if result.stdout else result.stderr
+        return f"✅ Lệnh NGUY HIỂM đã chạy thành công:\n{output}"
+    except subprocess.TimeoutExpired:
+        return "❌ Lỗi: Lệnh bị timeout (vượt quá giới hạn 30 giây)."
+    except Exception as e:
+        return f"❌ Lỗi thực thi: {str(e)}"
+
+
 # ─── Entry point ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    logger.info("Secure Local MCP Server đang khởi động...")
-    logger.info(f"Thư mục ghi chú: {NOTES_DIR}")
-    logger.info(f"Đã lập chỉ mục: {len(indexer.list_files())} file")
+    logger.info("Secure Local MCP Server is starting...")
+    logger.info(f"Notes directory: {NOTES_DIR}")
+    logger.info(f"Indexed files: {len(indexer.list_files())}")
     
     # Chạy Watchdog song song
     start_watchdog()

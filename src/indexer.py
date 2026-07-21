@@ -10,6 +10,8 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
 
+SUPPORTED_EXTS = {".md", ".txt", ".py", ".js", ".json", ".yaml", ".yml", ".ini", ".csv", ".log", ".go", ".java", ".cpp", ".h", ".rs"}
+
 
 @dataclass
 class SearchResult:
@@ -29,15 +31,17 @@ class NoteIndexer:
     thay vì quét từng file tuần tự O(N×M).
     """
 
-    def __init__(self, notes_dir: str | Path, db_path: str = ":memory:"):
+    def __init__(self, base_dir: str | Path, scan_dirs: list[str | Path], db_path: str = ":memory:"):
         """
         Khởi tạo indexer.
 
         Args:
-            notes_dir: Đường dẫn đến thư mục chứa các file ghi chú.
+            base_dir: Thư mục gốc để tính đường dẫn tương đối.
+            scan_dirs: Danh sách các thư mục cần quét.
             db_path: Đường dẫn file SQLite DB.
         """
-        self.notes_dir = Path(notes_dir).resolve()
+        self.base_dir = Path(base_dir).resolve()
+        self.scan_dirs = [Path(d).resolve() for d in scan_dirs]
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL;")
@@ -73,28 +77,31 @@ class NoteIndexer:
         self.conn.execute("DELETE FROM notes_fts")
         indexed_count = 0
 
-        if not self.notes_dir.exists():
-            self.conn.commit()
-            return 0
-
-        for file_path in self.notes_dir.rglob("*.md"):
-            try:
-                content = file_path.read_text(encoding="utf-8")
-                lines = content.strip().splitlines()
-                # Lấy dòng đầu tiên có nội dung làm tiêu đề
-                title = next(
-                    (line.lstrip("# ").strip() for line in lines if line.strip()),
-                    file_path.stem
-                )
-                rel_path = file_path.relative_to(self.notes_dir).as_posix()
-                self.conn.execute(
-                    "INSERT INTO notes_fts(filename, title, content) VALUES (?, ?, ?)",
-                    (rel_path, title, content),
-                )
-                indexed_count += 1
-            except (OSError, UnicodeDecodeError):
-                # Bỏ qua file không đọc được
+        for d in self.scan_dirs:
+            if not d.exists():
                 continue
+
+            for file_path in d.rglob("*"):
+                if not file_path.is_file() or file_path.suffix.lower() not in SUPPORTED_EXTS:
+                    continue
+                try:
+                    content = file_path.read_text(encoding="utf-8")
+                    lines = content.strip().splitlines()
+                    
+                    if file_path.suffix.lower() == '.md':
+                        title = next((line.lstrip("# ").strip() for line in lines if line.strip()), file_path.stem)
+                    else:
+                        title = file_path.name
+
+                    rel_path = file_path.relative_to(self.base_dir).as_posix()
+                    self.conn.execute(
+                        "INSERT INTO notes_fts(filename, title, content) VALUES (?, ?, ?)",
+                        (rel_path, title, content),
+                    )
+                    indexed_count += 1
+                except (OSError, UnicodeDecodeError):
+                    # Bỏ qua file không đọc được
+                    continue
 
         self.conn.commit()
         return indexed_count
@@ -102,14 +109,17 @@ class NoteIndexer:
     def upsert_file(self, file_path: Path | str) -> bool:
         """Chèn hoặc cập nhật một file cụ thể mà không cần quét lại toàn thư mục."""
         path_obj = Path(file_path).resolve()
-        if not path_obj.exists() or path_obj.suffix != '.md':
+        if not path_obj.exists() or path_obj.suffix.lower() not in SUPPORTED_EXTS:
             return False
             
         try:
-            rel_path = path_obj.relative_to(self.notes_dir).as_posix()
+            rel_path = path_obj.relative_to(self.base_dir).as_posix()
             content = path_obj.read_text(encoding="utf-8")
             lines = content.strip().splitlines()
-            title = next((line.lstrip("# ").strip() for line in lines if line.strip()), path_obj.stem)
+            if path_obj.suffix.lower() == '.md':
+                title = next((line.lstrip("# ").strip() for line in lines if line.strip()), path_obj.stem)
+            else:
+                title = path_obj.name
             
             # Xóa bản ghi cũ (FTS5 không hỗ trợ UPSERT chuẩn qua rowid nếu cấu trúc phức tạp)
             self.conn.execute("DELETE FROM notes_fts WHERE filename = ?", (rel_path,))
@@ -126,14 +136,12 @@ class NoteIndexer:
         """Xóa một file khỏi CSDL index khi file bị xóa."""
         try:
             path_obj = Path(file_path)
-            # Dùng relative_to sẽ throw lỗi nếu file không thuộc notes_dir
-            # Nhưng watchdog truyền đường dẫn tuyệt đối, nên ta thử tính toán
-            rel_path = path_obj.relative_to(self.notes_dir).as_posix()
+            rel_path = path_obj.relative_to(self.base_dir).as_posix()
             self.conn.execute("DELETE FROM notes_fts WHERE filename = ?", (rel_path,))
             self.conn.commit()
             return True
         except ValueError:
-            # File không nằm trong notes_dir
+            # File không nằm trong base_dir
             return False
 
     def search(self, query: str, limit: int = 10) -> list[SearchResult]:
