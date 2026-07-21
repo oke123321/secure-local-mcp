@@ -1,5 +1,7 @@
 # Secure Local MCP Agent (Engineering Edition)
 
+[![CI](https://github.com/oke123321/secure-local-mcp/actions/workflows/python-app.yml/badge.svg)](https://github.com/oke123321/secure-local-mcp/actions/workflows/python-app.yml)
+
 > Một hệ thống AI Agent Kỹ sư Phần mềm hoàn toàn offline, bảo mật, và tương tác trực tiếp với máy tính cá nhân qua giao thức MCP (Model Context Protocol).
 
 ---
